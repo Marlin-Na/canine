@@ -22,6 +22,10 @@ from urllib3.exceptions import ProtocolError
 
 import pandas as pd
 
+from threading import Lock
+
+gce_lock = Lock()
+
 class DockerTransientImageSlurmBackend(TransientImageSlurmBackend): # {{{
     def __init__(
         self, cluster_name, *,
@@ -75,7 +79,12 @@ class DockerTransientImageSlurmBackend(TransientImageSlurmBackend): # {{{
           "user" : user,
           **{ k : v for k, v in self.config.items() if k not in { "worker_prefix", "user", "action_on_stop" } }
         }
-        self.config["image"] = self.get_latest_image(self.config["image_family"])["name"] if image is None else image
+        try:
+            self.config["image"] = self.get_latest_image(self.config["image_family"])["name"] if image is None else image
+        except Exception as err:
+            print("Cound not find image with {} image family [{}], fall back to 'slurm-gcp-docker'".format(self.config["image_family"]), err)
+            self.config["image_family"] = "slurm-gcp-docker"
+            self.config["image"] = self.get_latest_image(self.config["image_family"])["name"] if image is None else image
 
         # placeholder for Docker API
         self.dkr = None
@@ -342,7 +351,9 @@ class DockerTransientImageSlurmBackend(TransientImageSlurmBackend): # {{{
 
     def get_latest_image(self, image_family = None):
         image_family = self.config["image_family"] if image_family is None else image_family
-        return gce.images().getFromFamily(family = image_family, project = self.config["project"]).execute()
+        with gce_lock: # I had issues without the lock
+            ans = gce.images().getFromFamily(family = image_family, project = self.config["project"]).execute()
+        return ans
 
     def invoke(self, command, interactive = False):
         if self.container is not None and self.container().status == "running":
@@ -365,6 +376,14 @@ class DockerTransientImageSlurmBackend(TransientImageSlurmBackend): # {{{
             time.sleep(60)
 
 # }}}
+
+class LocalDockerSlurmBackend(DockerTransientImageSlurmBackend):
+    def __enter__(self):
+        self.dkr = docker.from_env()
+        self.container = self._get_container(self.config["cluster_name"])
+        return self
+    def __exit__(self, *args):
+        pass
 
 # Python version of checks in docker_run.sh
 def ready_for_docker():
