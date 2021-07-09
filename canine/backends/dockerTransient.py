@@ -55,7 +55,7 @@ class DockerTransientImageSlurmBackend(TransientImageSlurmBackend): # {{{
           "cluster_name" : cluster_name,
           "worker_prefix" : socket.gethostname(),
           "action_on_stop" : action_on_stop,
-          "image_family" : image_family if image_family is not None else "slurm-gcp-docker-" + user,
+          "image_family" : image_family if image_family is not None else "slurm-gcp-docker-" + user + "-" + str(os.getuid()),
           "clust_frac" : max(min(clust_frac, 1.0), 1e-6),
           "user" : user,
           **{ k : v for k, v in self.config.items() if k not in { "worker_prefix", "user", "action_on_stop" } }
